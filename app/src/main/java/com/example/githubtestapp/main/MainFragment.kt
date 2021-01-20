@@ -3,12 +3,11 @@ package com.example.githubtestapp.main
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
-import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.content.res.ResourcesCompat
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.githubtestapp.Event
 import com.example.githubtestapp.R
 import com.example.githubtestapp.api.GithubUser
 import com.example.githubtestapp.databinding.FragmentMainBinding
@@ -25,6 +24,7 @@ import com.zhuinden.simplestackextensions.fragmentsktx.lookup
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.rxkotlin.plusAssign
+import timber.log.Timber
 
 class MainFragment : KeyedFragment(R.layout.fragment_main) {
 
@@ -48,20 +48,32 @@ class MainFragment : KeyedFragment(R.layout.fragment_main) {
     binding.usersView.addItemDecoration(
       DividerItemDecoration(requireContext(), LinearLayoutManager.VERTICAL)
     )
+    binding.swipeLayout.setOnRefreshListener {
+      controller.fetchUsers()
+    }
     binding.usersView.addOnReachBottomListener { controller.fetchMoreUsers() }
   }
 
   private fun recycler(): Recycler<GithubUser> {
     return Recycler.adopt(binding.usersView) {
       row<GithubUser, View> {
-        create(R.layout.user_item) {
+        create {
           val userBinding = UserItemBinding.inflate(LayoutInflater.from(requireContext()))
           view = userBinding.root
           bind { item -> bindUser(userBinding, item) }
         }
       }
-      extraItem<Any, View> {
-        create(R.layout.loading_more) {}
+      extraItem<Boolean, View> {
+        create(R.layout.loading_more) {
+          val indicator = view.findViewById<TextView>(R.id.loadingIndicator)
+          bind { retry ->
+            indicator.text = if (retry) getString(R.string.failed_tap_to_retry)
+            else getString(R.string.loading_more)
+            indicator.setOnClickListener {
+              controller.fetchMoreUsers()
+            }
+          }
+        }
       }
       stableId { user -> user.id }
       compareItemsContent { a, b -> a == b }
@@ -88,16 +100,21 @@ class MainFragment : KeyedFragment(R.layout.fragment_main) {
         }
       }
 
-    disposables += controller.state
+    disposables += controller.states
       .observeOn(AndroidSchedulers.mainThread())
       .subscribe { state ->
+        Timber.e(state.toString())
+        binding.swipeLayout.isRefreshing = state.loading
         recycler.update {
-          extraItem = if (state.loading) Unit else null
+          extraItem = if (state.endReached || state.loading) null else state.loadingMoreError != null
         }
       }
 
     controller.events.observe(this, { event ->
-      Toast.makeText(requireContext(), event.toString(), Toast.LENGTH_LONG).show()
+      Timber.e(event.toString())
+      if (event is Event.ConnectionProblem) {
+        Toast.makeText(requireContext(), getString(R.string.connection_problem), Toast.LENGTH_SHORT).show()
+      }
     })
   }
 

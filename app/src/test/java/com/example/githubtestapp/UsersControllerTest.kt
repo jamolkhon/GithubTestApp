@@ -26,7 +26,7 @@ class UsersControllerTest {
     assertEquals(emptyList<List<GithubUser>>(), usersObserver.value)
 
     val stateObserver = SimpleObserver<MainViewState>()
-    controller.state.subscribe(stateObserver)
+    controller.states.subscribe(stateObserver)
     assertEquals(MainViewState(false), stateObserver.value)
 
     controller.fetchUsers()

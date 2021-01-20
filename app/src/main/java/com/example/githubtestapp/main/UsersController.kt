@@ -1,16 +1,17 @@
 package com.example.githubtestapp.main
 
+import com.example.githubtestapp.Event
 import com.example.githubtestapp.api.GithubApi
 import com.example.githubtestapp.api.GithubUser
 import com.example.githubtestapp.support.EventEmitterConsumer
 import com.example.githubtestapp.support.SchedulerProvider
 import com.jakewharton.rxrelay2.BehaviorRelay
-import com.zhuinden.commandqueue.CommandQueue
 import com.zhuinden.eventemitter.EventSource
 import com.zhuinden.simplestack.ScopedServices
 import io.reactivex.Observable
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.rxkotlin.plusAssign
+import java.io.IOException
 import javax.inject.Inject
 
 class UsersController @Inject constructor(
@@ -24,8 +25,10 @@ class UsersController @Inject constructor(
   private val _selectedUser = BehaviorRelay.create<GithubUser>()
   val selectedUser: Observable<GithubUser> = _selectedUser
 
-  private val _state = BehaviorRelay.createDefault(MainViewState())
-  val state: Observable<MainViewState> = _state
+  private val _states = BehaviorRelay.createDefault(MainViewState())
+  private val state: MainViewState
+    get() = _states.value!!
+  val states: Observable<MainViewState> = _states
 
   private val _events = EventEmitterConsumer<Any>()
   val events: EventSource<Any> = _events
@@ -33,37 +36,56 @@ class UsersController @Inject constructor(
   private val disposables = CompositeDisposable()
 
   fun fetchUsers() {
+    if (state.isLoading()) return
     disposables += githubApi.getUsers(0)
       .subscribeOn(schedulers.io())
       .observeOn(schedulers.ui())
       .doOnSubscribe {
-        _state.accept(MainViewState(true))
+        _states.accept(state.loading())
       }
-      .doFinally {
-        _state.accept(MainViewState(false))
+      .doOnSuccess {
+        _states.accept(state.loadingDone())
       }
-      .subscribe(_users, _events)
+      .doOnError { error ->
+        handleError(error)
+        _states.accept(state.loadingDone(error))
+      }
+      .subscribe(_users, {})
   }
 
   fun fetchMoreUsers() {
+    if (state.isLoading()) return
     val since = _users.value?.lastOrNull()?.id ?: 0
     disposables += githubApi.getUsers(since)
       .subscribeOn(schedulers.io())
       .observeOn(schedulers.ui())
       .doOnSubscribe {
-        _state.accept(MainViewState(true))
+        _states.accept(state.loadingMore())
       }
-      .doFinally {
-        _state.accept(MainViewState(false))
+      .doOnSuccess { users ->
+        _states.accept(state.loadingMoreDone(endReached = users.isEmpty()))
+      }
+      .doOnError { error ->
+        handleError(error)
+        _states.accept(state.loadingMoreDone(error))
       }
       .map { users -> _users.value!!.plus(users) }
-      .subscribe(_users, _events)
+      .subscribe(_users, {})
   }
 
   fun selectUser(id: Long) {
     _users.value
       ?.find { user -> user.id == id }
       ?.let { user -> _selectedUser.accept(user) }
+  }
+
+  private fun handleError(t: Throwable) {
+    if (t is IOException) {
+      _events.accept(Event.ConnectionProblem)
+    }
+    else {
+      _events.accept(Event.UnknownProblem)
+    }
   }
 
   override fun onServiceRegistered() {

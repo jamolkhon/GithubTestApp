@@ -2,4 +2,6 @@
     <string name="app_name">GithubTestApp</string>
     <string name="contributors">Contributors</string>
     <string name="loading_more">Loading…</string>
+    <string name="connection_problem">Connection problem</string>
+    <string name="failed_tap_to_retry">Loading failed. Tap to retry.</string>
 </resources>
